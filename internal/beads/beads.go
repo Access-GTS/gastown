@@ -642,24 +642,50 @@ func (b *Beads) CreateAgentBead(id, title string, fields *AgentFields) (*Issue, 
 
 // UpdateAgentState updates the agent_state field in an agent bead.
 // Optionally updates hook_bead if provided.
+//
+// IMPORTANT: This function uses the proper bd commands to update agent fields:
+// - `bd agent state` for agent_state (uses SQLite column directly)
+// - `bd slot set/clear` for hook_bead (uses SQLite column directly)
+//
+// This ensures consistency with `bd slot show` and other beads commands.
+// Previously, this function embedded these fields in the description text,
+// which caused inconsistencies with bd slot commands (see GH #gt-9v52).
 func (b *Beads) UpdateAgentState(id string, state string, hookBead *string) error {
-	// First get current issue to preserve other fields
-	issue, err := b.Show(id)
+	// Update agent state using bd agent state command
+	// This updates the agent_state column directly in SQLite
+	_, err := b.run("agent", "state", id, state)
 	if err != nil {
-		return err
+		return fmt.Errorf("updating agent state: %w", err)
 	}
 
-	// Parse existing fields
-	fields := ParseAgentFields(issue.Description)
-	fields.AgentState = state
+	// Update hook_bead if provided
 	if hookBead != nil {
-		fields.HookBead = *hookBead
+		if *hookBead != "" {
+			// Set the hook using bd slot set
+			// This updates the hook_bead column directly in SQLite
+			_, err = b.run("slot", "set", id, "hook", *hookBead)
+			if err != nil {
+				// If slot is already occupied, clear it first then retry
+				// This handles re-slinging scenarios where we're updating the hook
+				errStr := err.Error()
+				if strings.Contains(errStr, "already occupied") {
+					_, _ = b.run("slot", "clear", id, "hook")
+					_, err = b.run("slot", "set", id, "hook", *hookBead)
+				}
+				if err != nil {
+					return fmt.Errorf("setting hook: %w", err)
+				}
+			}
+		} else {
+			// Clear the hook
+			_, err = b.run("slot", "clear", id, "hook")
+			if err != nil {
+				return fmt.Errorf("clearing hook: %w", err)
+			}
+		}
 	}
 
-	// Format new description
-	description := FormatAgentDescription(issue.Title, fields)
-
-	return b.Update(id, UpdateOptions{Description: &description})
+	return nil
 }
 
 // UpdateAgentCleanupStatus updates the cleanup_status field in an agent bead.
