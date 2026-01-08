@@ -664,12 +664,9 @@ func deriveSessionName() string {
 
 // detectCurrentTmuxSession returns the current tmux session name if running inside tmux.
 // Uses `tmux display-message -p '#S'` which prints the session name.
+// Note: We don't check TMUX env var because it may not be inherited when Claude Code
+// runs bash commands, even though we are inside a tmux session.
 func detectCurrentTmuxSession() string {
-	// Check if we're inside tmux
-	if os.Getenv("TMUX") == "" {
-		return ""
-	}
-
 	cmd := exec.Command("tmux", "display-message", "-p", "#S")
 	output, err := cmd.Output()
 	if err != nil {
