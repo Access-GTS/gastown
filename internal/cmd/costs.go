@@ -280,7 +280,7 @@ func runCostsFromLedger() error {
 	if costsToday {
 		// For today: query ephemeral wisps (not yet digested)
 		// This gives real-time view of today's costs
-		entries, err = querySessionCostWisps(now)
+		entries, err = querySessionCostEntries(now)
 		if err != nil {
 			return fmt.Errorf("querying session cost wisps: %w", err)
 		}
@@ -293,8 +293,8 @@ func runCostsFromLedger() error {
 		}
 
 		// Also include today's wisps (not yet digested)
-		todayWisps, _ := querySessionCostWisps(now)
-		entries = append(entries, todayWisps...)
+		todayEntries, _ := querySessionCostEntries(now)
+		entries = append(entries, todayEntries...)
 	} else {
 		// No time filter: query both digests and legacy session.ended events
 		// (for backwards compatibility during migration)
@@ -821,7 +821,9 @@ func runCostsRecord(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("creating log directory: %w", err)
 	}
 
-	// Open file for append (create if doesn't exist)
+	// Open file for append (create if doesn't exist).
+	// O_APPEND writes are atomic on POSIX for writes < PIPE_BUF (~4KB).
+	// A JSON log entry is ~200 bytes, so concurrent appends are safe.
 	f, err := os.OpenFile(logPath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		return fmt.Errorf("opening costs log: %w", err)
@@ -934,13 +936,13 @@ func runCostsDigest(cmd *cobra.Command, args []string) error {
 
 	dateStr := targetDate.Format("2006-01-02")
 
-	// Query ephemeral session.ended wisps for target date
-	wisps, err := querySessionCostWisps(targetDate)
+	// Query session cost entries for target date
+	costEntries, err := querySessionCostEntries(targetDate)
 	if err != nil {
-		return fmt.Errorf("querying session cost wisps: %w", err)
+		return fmt.Errorf("querying session cost entries: %w", err)
 	}
 
-	if len(wisps) == 0 {
+	if len(costEntries) == 0 {
 		fmt.Printf("%s No session cost entries found for %s\n", style.Dim.Render("○"), dateStr)
 		return nil
 	}
@@ -948,17 +950,17 @@ func runCostsDigest(cmd *cobra.Command, args []string) error {
 	// Build digest
 	digest := CostDigest{
 		Date:     dateStr,
-		Sessions: wisps,
+		Sessions: costEntries,
 		ByRole:   make(map[string]float64),
 		ByRig:    make(map[string]float64),
 	}
 
-	for _, w := range wisps {
-		digest.TotalUSD += w.CostUSD
+	for _, e := range costEntries {
+		digest.TotalUSD += e.CostUSD
 		digest.SessionCount++
-		digest.ByRole[w.Role] += w.CostUSD
-		if w.Rig != "" {
-			digest.ByRig[w.Rig] += w.CostUSD
+		digest.ByRole[e.Role] += e.CostUSD
+		if e.Rig != "" {
+			digest.ByRig[e.Rig] += e.CostUSD
 		}
 	}
 
@@ -1000,8 +1002,8 @@ func runCostsDigest(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// querySessionCostWisps reads session cost entries from the local log file for a target date.
-func querySessionCostWisps(targetDate time.Time) ([]CostEntry, error) {
+// querySessionCostEntries reads session cost entries from the local log file for a target date.
+func querySessionCostEntries(targetDate time.Time) ([]CostEntry, error) {
 	logPath := getCostsLogPath()
 
 	// Read log file
