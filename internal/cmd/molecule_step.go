@@ -199,93 +199,6 @@ func extractMoleculeIDFromStep(stepID string) string {
 	return stepID[:lastDot]
 }
 
-// findNextReadyStep finds the next ready step in a molecule.
-// Returns (nextStep, allComplete, error).
-// If all steps are complete, returns (nil, true, nil).
-// If no steps are ready but some are blocked/in_progress, returns (nil, false, nil).
-func findNextReadyStep(b *beads.Beads, moleculeID string) (*beads.Issue, bool, error) {
-	// Get all children of the molecule
-	children, err := b.List(beads.ListOptions{
-		Parent:   moleculeID,
-		Status:   "all",
-		Priority: -1,
-	})
-	if err != nil {
-		return nil, false, fmt.Errorf("listing molecule steps: %w", err)
-	}
-
-	if len(children) == 0 {
-		return nil, true, nil // No steps = complete
-	}
-
-	// Build set of closed step IDs and collect open step IDs
-	// Note: "open" means not started. "in_progress" means someone's working on it.
-	// We only consider "open" steps as candidates for the next step.
-	closedIDs := make(map[string]bool)
-	var openStepIDs []string
-	hasNonClosedSteps := false
-
-	for _, child := range children {
-		switch child.Status {
-		case "closed":
-			closedIDs[child.ID] = true
-		case "open":
-			openStepIDs = append(openStepIDs, child.ID)
-			hasNonClosedSteps = true
-		default:
-			// in_progress or other status - not closed, not available
-			hasNonClosedSteps = true
-		}
-	}
-
-	// Check if all complete
-	if !hasNonClosedSteps {
-		return nil, true, nil
-	}
-
-	// No open steps to check
-	if len(openStepIDs) == 0 {
-		return nil, false, nil
-	}
-
-	// Fetch full details for open steps to get dependency info.
-	// bd list doesn't return dependencies, but bd show does.
-	openStepsMap, err := b.ShowMultiple(openStepIDs)
-	if err != nil {
-		return nil, false, fmt.Errorf("fetching step details: %w", err)
-	}
-
-	// Find ready steps (open steps with all dependencies closed)
-	for _, stepID := range openStepIDs {
-		step, ok := openStepsMap[stepID]
-		if !ok {
-			continue
-		}
-
-		// Check dependencies using the Dependencies field (from bd show),
-		// not DependsOn (which is empty from bd list).
-		allDepsClosed := true
-		hasBlockingDeps := false
-		for _, dep := range step.Dependencies {
-			if isNonBlockingDepType(dep.DependencyType) {
-				continue // Skip parent-child and other non-blocking relationships
-			}
-			hasBlockingDeps = true
-			if !closedIDs[dep.ID] {
-				allDepsClosed = false
-				break
-			}
-		}
-
-		if !hasBlockingDeps || allDepsClosed {
-			return step, false, nil
-		}
-	}
-
-	// No ready steps (all blocked or in_progress)
-	return nil, false, nil
-}
-
 // findAllReadySteps finds all ready steps in a molecule.
 // Returns (readySteps, allComplete, error).
 // If all steps are complete, returns (nil, true, nil).
@@ -349,7 +262,7 @@ func findAllReadySteps(b *beads.Beads, moleculeID string) ([]*beads.Issue, bool,
 		allDepsClosed := true
 		hasBlockingDeps := false
 		for _, dep := range step.Dependencies {
-			if isNonBlockingDepType(dep.DependencyType) {
+			if !isBlockingDepType(dep.DependencyType) {
 				continue
 			}
 			hasBlockingDeps = true

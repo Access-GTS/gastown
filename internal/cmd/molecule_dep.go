@@ -8,15 +8,16 @@ import (
 	"github.com/steveyegge/gastown/internal/beads"
 )
 
-// isNonBlockingDepType returns true for dependency types that should NOT
-// block step progress. Unknown types default to BLOCKING (safe default).
-func isNonBlockingDepType(depType string) bool {
+// isBlockingDepType returns true for dependency types that block molecule step
+// progress. Matches beads' canonical blocking types (AffectsReadyWork) except
+// parent-child, which represents molecule→step hierarchy in this context.
+// Unknown/custom types are non-blocking, matching beads' default behavior.
+func isBlockingDepType(depType string) bool {
 	switch depType {
-	case "parent-child", "tracks", "related", "discovered-from",
-		"caused-by", "validates", "relates-to", "supersedes":
+	case "blocks", "conditional-blocks", "waits-for":
 		return true
 	default:
-		return false // "blocks", "", "needs", unknown -> blocking
+		return false
 	}
 }
 

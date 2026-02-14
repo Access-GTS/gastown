@@ -228,7 +228,7 @@ func runMoleculeProgress(cmd *cobra.Command, args []string) error {
 				deps = step.Dependencies
 			}
 			for _, dep := range deps {
-				if isNonBlockingDepType(dep.DependencyType) {
+				if !isBlockingDepType(dep.DependencyType) {
 					continue // Skip parent-child and other non-blocking relationships
 				}
 				hasBlockingDeps = true
@@ -604,7 +604,7 @@ func getMoleculeProgressInfo(b *beads.Beads, moleculeRootID string) (*MoleculePr
 				deps = step.Dependencies
 			}
 			for _, dep := range deps {
-				if isNonBlockingDepType(dep.DependencyType) {
+				if !isBlockingDepType(dep.DependencyType) {
 					continue // Skip parent-child and other non-blocking relationships
 				}
 				hasBlockingDeps = true
@@ -900,7 +900,7 @@ func runMoleculeCurrent(cmd *cobra.Command, args []string) error {
 		allDepsClosed := true
 		hasBlockingDeps := false
 		for _, dep := range step.Dependencies {
-			if isNonBlockingDepType(dep.DependencyType) {
+			if !isBlockingDepType(dep.DependencyType) {
 				continue // Skip parent-child and other non-blocking relationships
 			}
 			hasBlockingDeps = true
