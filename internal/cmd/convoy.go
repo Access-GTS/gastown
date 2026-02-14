@@ -305,6 +305,11 @@ func runConvoyCreate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Validate at least one tracked issue is provided
+	if len(trackedIssues) == 0 {
+		return fmt.Errorf("at least one issue ID is required\nUsage: gt convoy create <name> <issue-id> [issue-id...]")
+	}
+
 	townBeads, err := getTownBeadsDir()
 	if err != nil {
 		return err
@@ -960,11 +965,8 @@ func checkAndCloseCompletedConvoys(townBeads string, dryRun bool) ([]struct{ ID,
 			style.PrintWarning("skipping convoy %s: %v", convoy.ID, err)
 			continue
 		}
-		if len(tracked) == 0 {
-			continue // No tracked issues, nothing to check
-		}
-
-		// Check if all tracked issues are closed
+		// A convoy with 0 tracked issues is definitionally complete
+		// (tracking deps were likely lost). Close it.
 		allClosed := true
 		for _, t := range tracked {
 			if t.Status != "closed" && t.Status != "tombstone" {
@@ -981,7 +983,11 @@ func checkAndCloseCompletedConvoys(townBeads string, dryRun bool) ([]struct{ ID,
 			}
 
 			// Close the convoy
-			closeArgs := []string{"close", convoy.ID, "-r", "All tracked issues completed"}
+			reason := "All tracked issues completed"
+			if len(tracked) == 0 {
+				reason = "Empty convoy (0 tracked issues) — auto-closed as definitionally complete"
+			}
+			closeArgs := []string{"close", convoy.ID, "-r", reason}
 			closeCmd := exec.Command("bd", closeArgs...)
 			closeCmd.Dir = townBeads
 
