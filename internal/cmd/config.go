@@ -140,6 +140,116 @@ Examples:
 	RunE: runConfigAgentEmailDomain,
 }
 
+// Generic config set/get subcommands
+
+var configSetCmd = &cobra.Command{
+	Use:   "set <key> <value>",
+	Short: "Set a configuration value",
+	Long: `Set a configuration value using dotted key paths.
+
+Supported keys:
+  convoy.notify_on_complete   Push convoy completion notifications into the
+                              active Mayor session (true/false, default: false)
+
+Examples:
+  gt config set convoy.notify_on_complete true
+  gt config set convoy.notify_on_complete false`,
+	Args: cobra.ExactArgs(2),
+	RunE: runConfigSet,
+}
+
+var configGetCmd = &cobra.Command{
+	Use:   "get <key>",
+	Short: "Get a configuration value",
+	Long: `Get a configuration value using dotted key paths.
+
+Supported keys:
+  convoy.notify_on_complete   Push convoy completion notifications into the
+                              active Mayor session (true/false, default: false)
+
+Examples:
+  gt config get convoy.notify_on_complete`,
+	Args: cobra.ExactArgs(1),
+	RunE: runConfigGet,
+}
+
+func runConfigSet(cmd *cobra.Command, args []string) error {
+	key := args[0]
+	value := args[1]
+
+	townRoot, err := workspace.FindFromCwd()
+	if err != nil {
+		return fmt.Errorf("finding town root: %w", err)
+	}
+
+	settingsPath := config.TownSettingsPath(townRoot)
+	settings, err := config.LoadOrCreateTownSettings(settingsPath)
+	if err != nil {
+		return fmt.Errorf("loading town settings: %w", err)
+	}
+
+	switch key {
+	case "convoy.notify_on_complete":
+		b, err := parseBool(value)
+		if err != nil {
+			return fmt.Errorf("invalid value for %s: %w (expected true or false)", key, err)
+		}
+		if settings.Convoy == nil {
+			settings.Convoy = &config.ConvoyConfig{}
+		}
+		settings.Convoy.NotifyOnComplete = b
+	default:
+		return fmt.Errorf("unknown config key: %s\n\nSupported keys:\n  convoy.notify_on_complete", key)
+	}
+
+	if err := config.SaveTownSettings(settingsPath, settings); err != nil {
+		return fmt.Errorf("saving settings: %w", err)
+	}
+
+	fmt.Printf("%s %s = %s\n", style.Bold.Render("✓"), key, value)
+	return nil
+}
+
+func runConfigGet(cmd *cobra.Command, args []string) error {
+	key := args[0]
+
+	townRoot, err := workspace.FindFromCwd()
+	if err != nil {
+		return fmt.Errorf("finding town root: %w", err)
+	}
+
+	settingsPath := config.TownSettingsPath(townRoot)
+	settings, err := config.LoadOrCreateTownSettings(settingsPath)
+	if err != nil {
+		return fmt.Errorf("loading town settings: %w", err)
+	}
+
+	switch key {
+	case "convoy.notify_on_complete":
+		val := false
+		if settings.Convoy != nil {
+			val = settings.Convoy.NotifyOnComplete
+		}
+		fmt.Printf("%s = %v\n", key, val)
+	default:
+		return fmt.Errorf("unknown config key: %s\n\nSupported keys:\n  convoy.notify_on_complete", key)
+	}
+
+	return nil
+}
+
+// parseBool parses common boolean string representations.
+func parseBool(s string) (bool, error) {
+	switch strings.ToLower(s) {
+	case "true", "1", "yes", "on":
+		return true, nil
+	case "false", "0", "no", "off":
+		return false, nil
+	default:
+		return false, fmt.Errorf("cannot parse %q as boolean", s)
+	}
+}
+
 // Flags
 var (
 	configAgentListJSON bool
@@ -536,6 +646,8 @@ config values such as the default AI model or provider.`,
 	configCmd.AddCommand(configAgentCmd)
 	configCmd.AddCommand(configDefaultAgentCmd)
 	configCmd.AddCommand(configAgentEmailDomainCmd)
+	configCmd.AddCommand(configSetCmd)
+	configCmd.AddCommand(configGetCmd)
 
 	// Register with root
 	rootCmd.AddCommand(configCmd)

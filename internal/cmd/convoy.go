@@ -17,6 +17,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
 	"github.com/steveyegge/gastown/internal/beads"
+	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/style"
 	"github.com/steveyegge/gastown/internal/tui/convoy"
 	"github.com/steveyegge/gastown/internal/workspace"
@@ -1087,6 +1088,29 @@ func notifyConvoyCompletion(townBeads, convoyID, title string) {
 			}
 			notified[addr] = true
 		}
+	}
+
+	// Push notification to active Mayor session if configured
+	notifyMayorSession(townBeads, convoyID, title)
+}
+
+// notifyMayorSession pushes a convoy completion notification into the active
+// Mayor session via nudge, if convoy.notify_on_complete is enabled.
+func notifyMayorSession(townBeads, convoyID, title string) {
+	townRoot := filepath.Dir(townBeads) // townBeads = townRoot/.beads
+	settingsPath := config.TownSettingsPath(townRoot)
+	settings, err := config.LoadOrCreateTownSettings(settingsPath)
+	if err != nil {
+		return
+	}
+	if settings.Convoy == nil || !settings.Convoy.NotifyOnComplete {
+		return
+	}
+
+	nudgeMsg := fmt.Sprintf("🚚 Convoy landed: %s — Convoy %s has completed. All tracked issues are now closed.", title, convoyID)
+	nudgeCmd := exec.Command("gt", "nudge", "mayor", "-m", nudgeMsg)
+	if err := nudgeCmd.Run(); err != nil {
+		style.PrintWarning("could not nudge Mayor session: %v", err)
 	}
 }
 
