@@ -783,7 +783,7 @@ notifyWitness:
 		// All exit types kill the session - "done means gone"
 		fmt.Printf("%s Terminating session (done means gone)\n", style.Bold.Render("→"))
 		if err := selfKillSession(townRoot, roleInfo); err != nil {
-			// If session kill fails, fall through to os.Exit
+			// If session kill fails, fall through to normal exit
 			style.PrintWarning("session kill failed: %v", err)
 		} else {
 			sessionKilled = true // Prevent deferred kill from double-killing
