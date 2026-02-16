@@ -10,6 +10,7 @@ import (
 
 	"github.com/steveyegge/gastown/internal/config"
 	"github.com/steveyegge/gastown/internal/runtime"
+	"github.com/steveyegge/gastown/internal/session"
 	"github.com/steveyegge/gastown/internal/style"
 	"github.com/steveyegge/gastown/internal/tmux"
 )
@@ -291,6 +292,8 @@ func (c *ClaudeSettingsCheck) findSettingsFiles(townRoot string) []staleSettings
 			continue
 		}
 
+		rigPrefix := config.GetRigPrefix(townRoot, rigName)
+
 		// Check for witness settings
 		witnessDir := filepath.Join(rigPath, "witness")
 		if dirExists(witnessDir) {
@@ -301,14 +304,14 @@ func (c *ClaudeSettingsCheck) findSettingsFiles(townRoot string) []staleSettings
 					path:        witnessCorrectSettings,
 					agentType:   "witness",
 					rigName:     rigName,
-					sessionName: fmt.Sprintf("gt-%s-witness", rigName),
+					sessionName: session.WitnessSessionName(rigPrefix),
 				})
 			} else {
 				files = append(files, staleSettingsInfo{
 					path:        witnessCorrectSettings,
 					agentType:   "witness",
 					rigName:     rigName,
-					sessionName: fmt.Sprintf("gt-%s-witness", rigName),
+					sessionName: session.WitnessSessionName(rigPrefix),
 					missingFile: true,
 				})
 			}
@@ -319,7 +322,7 @@ func (c *ClaudeSettingsCheck) findSettingsFiles(townRoot string) []staleSettings
 					path:          witnessParentStaleLocal,
 					agentType:     "witness",
 					rigName:       rigName,
-					sessionName:   fmt.Sprintf("gt-%s-witness", rigName),
+					sessionName:   session.WitnessSessionName(rigPrefix),
 					wrongLocation: true,
 					missing:       []string{"stale settings.local.json (settings now in witness/.claude/settings.json)"},
 				})
@@ -334,7 +337,7 @@ func (c *ClaudeSettingsCheck) findSettingsFiles(townRoot string) []staleSettings
 							path:          stalePath,
 							agentType:     "witness",
 							rigName:       rigName,
-							sessionName:   fmt.Sprintf("gt-%s-witness", rigName),
+							sessionName:   session.WitnessSessionName(rigPrefix),
 							wrongLocation: true,
 							missing:       []string{"stale settings in workdir (settings now in witness/.claude/settings.json)"},
 						})
@@ -353,14 +356,14 @@ func (c *ClaudeSettingsCheck) findSettingsFiles(townRoot string) []staleSettings
 					path:        refineryCorrectSettings,
 					agentType:   "refinery",
 					rigName:     rigName,
-					sessionName: fmt.Sprintf("gt-%s-refinery", rigName),
+					sessionName: session.RefinerySessionName(rigPrefix),
 				})
 			} else {
 				files = append(files, staleSettingsInfo{
 					path:        refineryCorrectSettings,
 					agentType:   "refinery",
 					rigName:     rigName,
-					sessionName: fmt.Sprintf("gt-%s-refinery", rigName),
+					sessionName: session.RefinerySessionName(rigPrefix),
 					missingFile: true,
 				})
 			}
@@ -371,7 +374,7 @@ func (c *ClaudeSettingsCheck) findSettingsFiles(townRoot string) []staleSettings
 					path:          refineryParentStaleLocal,
 					agentType:     "refinery",
 					rigName:       rigName,
-					sessionName:   fmt.Sprintf("gt-%s-refinery", rigName),
+					sessionName:   session.RefinerySessionName(rigPrefix),
 					wrongLocation: true,
 					missing:       []string{"stale settings.local.json (settings now in refinery/.claude/settings.json)"},
 				})
@@ -386,7 +389,7 @@ func (c *ClaudeSettingsCheck) findSettingsFiles(townRoot string) []staleSettings
 							path:          stalePath,
 							agentType:     "refinery",
 							rigName:       rigName,
-							sessionName:   fmt.Sprintf("gt-%s-refinery", rigName),
+							sessionName:   session.RefinerySessionName(rigPrefix),
 							wrongLocation: true,
 							missing:       []string{"stale settings in workdir (settings now in refinery/.claude/settings.json)"},
 						})
@@ -441,7 +444,7 @@ func (c *ClaudeSettingsCheck) findSettingsFiles(townRoot string) []staleSettings
 								path:          stalePath,
 								agentType:     "crew",
 								rigName:       rigName,
-								sessionName:   fmt.Sprintf("gt-%s-crew-%s", rigName, crewEntry.Name()),
+								sessionName:   session.CrewSessionName(rigPrefix, crewEntry.Name()),
 								wrongLocation: true,
 								missing:       []string{"stale settings in workdir (settings now in crew/.claude/settings.json)"},
 							})
@@ -495,7 +498,7 @@ func (c *ClaudeSettingsCheck) findSettingsFiles(townRoot string) []staleSettings
 							path:          stalePath,
 							agentType:     "polecat",
 							rigName:       rigName,
-							sessionName:   fmt.Sprintf("gt-%s-%s", rigName, pcEntry.Name()),
+							sessionName:   session.PolecatSessionName(rigPrefix, pcEntry.Name()),
 							wrongLocation: true,
 							missing:       []string{"stale settings in intermediate dir (settings now in polecats/.claude/settings.json)"},
 						})
@@ -511,7 +514,7 @@ func (c *ClaudeSettingsCheck) findSettingsFiles(townRoot string) []staleSettings
 								path:          stalePath,
 								agentType:     "polecat",
 								rigName:       rigName,
-								sessionName:   fmt.Sprintf("gt-%s-%s", rigName, pcEntry.Name()),
+								sessionName:   session.PolecatSessionName(rigPrefix, pcEntry.Name()),
 								wrongLocation: true,
 								missing:       []string{"stale settings in workdir (settings now in polecats/.claude/settings.json)"},
 							})

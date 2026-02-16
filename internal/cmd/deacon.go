@@ -1118,22 +1118,24 @@ func agentAddressToIDs(address string) (beadID, sessionName string, err error) {
 	case 2:
 		// rig/role: "gastown/witness", "gastown/refinery"
 		rig, role := parts[0], parts[1]
+		prefix := session.PrefixForRig(rig)
 		switch role {
 		case "witness":
-			return fmt.Sprintf("gt-%s-witness", rig), fmt.Sprintf("gt-%s-witness", rig), nil
+			return beads.WitnessBeadIDWithPrefix(prefix, rig), session.WitnessSessionName(prefix), nil
 		case "refinery":
-			return fmt.Sprintf("gt-%s-refinery", rig), fmt.Sprintf("gt-%s-refinery", rig), nil
+			return beads.RefineryBeadIDWithPrefix(prefix, rig), session.RefinerySessionName(prefix), nil
 		default:
 			return "", "", fmt.Errorf("unknown role: %s", role)
 		}
 	case 3:
 		// rig/type/name: "gastown/polecats/max", "gastown/crew/alpha"
 		rig, agentType, name := parts[0], parts[1], parts[2]
+		prefix := session.PrefixForRig(rig)
 		switch agentType {
 		case "polecats":
-			return fmt.Sprintf("gt-%s-polecat-%s", rig, name), fmt.Sprintf("gt-%s-%s", rig, name), nil
+			return beads.PolecatBeadIDWithPrefix(prefix, rig, name), session.PolecatSessionName(prefix, name), nil
 		case "crew":
-			return fmt.Sprintf("gt-%s-crew-%s", rig, name), fmt.Sprintf("gt-%s-crew-%s", rig, name), nil
+			return beads.CrewBeadIDWithPrefix(prefix, rig, name), session.CrewSessionName(prefix, name), nil
 		default:
 			return "", "", fmt.Errorf("unknown agent type: %s", agentType)
 		}

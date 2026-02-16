@@ -1387,16 +1387,17 @@ func addressToAgentBeadID(address string) string {
 	rig := parts[0]
 	target := parts[1]
 
+	prefix := session.PrefixForRig(rig)
 	switch {
 	case target == "witness":
-		return fmt.Sprintf("gt-%s-witness", rig)
+		return session.WitnessSessionName(prefix)
 	case target == "refinery":
-		return fmt.Sprintf("gt-%s-refinery", rig)
+		return session.RefinerySessionName(prefix)
 	case strings.HasPrefix(target, "crew/"):
 		crewName := strings.TrimPrefix(target, "crew/")
-		return fmt.Sprintf("gt-%s-crew-%s", rig, crewName)
+		return session.CrewSessionName(prefix, crewName)
 	default:
-		return fmt.Sprintf("gt-%s-polecat-%s", rig, target)
+		return session.PolecatSessionName(prefix, target)
 	}
 }
 
@@ -1432,24 +1433,34 @@ func addressToSessionIDs(address string) []string {
 	rig := parts[0]
 	target := parts[1]
 
+	prefix := session.PrefixForRig(rig)
+
 	// If target already has crew/ or polecats/ prefix, use it directly
-	// e.g., "gastown/crew/holden" → "gt-gastown-crew-holden"
-	if strings.HasPrefix(target, "crew/") || strings.HasPrefix(target, "polecats/") {
-		return []string{fmt.Sprintf("gt-%s-%s", rig, strings.ReplaceAll(target, "/", "-"))}
+	// e.g., "gastown/crew/holden" → "<prefix>-crew-holden"
+	if strings.HasPrefix(target, "crew/") {
+		crewName := strings.TrimPrefix(target, "crew/")
+		return []string{session.CrewSessionName(prefix, crewName)}
+	}
+	if strings.HasPrefix(target, "polecats/") {
+		polecatName := strings.TrimPrefix(target, "polecats/")
+		return []string{session.PolecatSessionName(prefix, polecatName)}
 	}
 
 	// Special cases that don't need crew variant
-	if target == "witness" || target == "refinery" {
-		return []string{fmt.Sprintf("gt-%s-%s", rig, target)}
+	if target == "witness" {
+		return []string{session.WitnessSessionName(prefix)}
+	}
+	if target == "refinery" {
+		return []string{session.RefinerySessionName(prefix)}
 	}
 
 	// For normalized addresses like "gastown/holden", try both:
-	// 1. Crew format: gt-gastown-crew-holden
-	// 2. Polecat format: gt-gastown-holden
+	// 1. Crew format: <prefix>-crew-holden
+	// 2. Polecat format: <prefix>-holden
 	// Return crew first since crew workers are more commonly missed.
 	return []string{
-		session.CrewSessionName(rig, target),    // gt-rig-crew-name
-		session.PolecatSessionName(rig, target), // gt-rig-name
+		session.CrewSessionName(prefix, target),    // <prefix>-crew-name
+		session.PolecatSessionName(prefix, target), // <prefix>-name
 	}
 }
 

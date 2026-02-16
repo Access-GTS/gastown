@@ -1054,30 +1054,36 @@ func deriveSessionName() string {
 	rig := os.Getenv("GT_RIG")
 	polecat := os.Getenv("GT_POLECAT")
 	crew := os.Getenv("GT_CREW")
-	town := os.Getenv("GT_TOWN")
 
-	// Polecat: gt-{rig}-{polecat}
+	// Polecat: <prefix>-{polecat}
 	if polecat != "" && rig != "" {
-		return fmt.Sprintf("gt-%s-%s", rig, polecat)
+		return session.PolecatSessionName(session.PrefixForRig(rig), polecat)
 	}
 
-	// Crew: gt-{rig}-crew-{crew}
+	// Crew: <prefix>-crew-{crew}
 	if crew != "" && rig != "" {
-		return fmt.Sprintf("gt-%s-crew-%s", rig, crew)
+		return session.CrewSessionName(session.PrefixForRig(rig), crew)
 	}
 
-	// Town-level roles (mayor, deacon): gt-{town}-{role} or gt-{role}
-	if role == "mayor" || role == "deacon" {
-		if town != "" {
-			return fmt.Sprintf("gt-%s-%s", town, role)
-		}
-		// No town set - use simple gt-{role} pattern
-		return fmt.Sprintf("gt-%s", role)
+	// Town-level roles (mayor, deacon)
+	if role == "mayor" {
+		return session.MayorSessionName()
+	}
+	if role == "deacon" {
+		return session.DeaconSessionName()
 	}
 
-	// Rig-based roles (witness, refinery): gt-{rig}-{role}
+	// Rig-based roles (witness, refinery): <prefix>-{role}
 	if role != "" && rig != "" {
-		return fmt.Sprintf("gt-%s-%s", rig, role)
+		rigPrefix := session.PrefixForRig(rig)
+		switch role {
+		case "witness":
+			return session.WitnessSessionName(rigPrefix)
+		case "refinery":
+			return session.RefinerySessionName(rigPrefix)
+		default:
+			return fmt.Sprintf("%s-%s", rigPrefix, role)
+		}
 	}
 
 	return ""

@@ -309,28 +309,31 @@ func (d *Daemon) getRoleConfigForIdentity(identity string) (*beads.RoleConfig, *
 // identityToSession converts a beads identity to a tmux session name.
 // Uses role config if available, falls back to hardcoded patterns.
 func (d *Daemon) identityToSession(identity string) string {
-	config, parsed, err := d.getRoleConfigForIdentity(identity)
+	roleConfig, parsed, err := d.getRoleConfigForIdentity(identity)
 	if err != nil {
 		return ""
 	}
 
 	// If role config has session_pattern, use it
-	if config != nil && config.SessionPattern != "" {
-		return beads.ExpandRolePattern(config.SessionPattern, d.config.TownRoot, parsed.RigName, parsed.AgentName, parsed.RoleType)
+	if roleConfig != nil && roleConfig.SessionPattern != "" {
+		return beads.ExpandRolePattern(roleConfig.SessionPattern, d.config.TownRoot, parsed.RigName, parsed.AgentName, parsed.RoleType)
 	}
 
 	// Fallback: use default patterns based on role type
+	rigPrefix := config.GetRigPrefix(d.config.TownRoot, parsed.RigName)
 	switch parsed.RoleType {
 	case "mayor":
 		return session.MayorSessionName()
 	case "deacon":
 		return session.DeaconSessionName()
-	case "witness", "refinery":
-		return fmt.Sprintf("gt-%s-%s", parsed.RigName, parsed.RoleType)
+	case "witness":
+		return session.WitnessSessionName(rigPrefix)
+	case "refinery":
+		return session.RefinerySessionName(rigPrefix)
 	case "crew":
-		return fmt.Sprintf("gt-%s-crew-%s", parsed.RigName, parsed.AgentName)
+		return session.CrewSessionName(rigPrefix, parsed.AgentName)
 	case "polecat":
-		return fmt.Sprintf("gt-%s-%s", parsed.RigName, parsed.AgentName)
+		return session.PolecatSessionName(rigPrefix, parsed.AgentName)
 	default:
 		return ""
 	}
@@ -1052,7 +1055,7 @@ func (d *Daemon) checkRigOrphanedWork(rigName string) {
 
 		// Check if tmux session is alive (derive state from tmux, not bead)
 		polecatName := strings.TrimPrefix(agent.ID, prefix)
-		sessionName := fmt.Sprintf("gt-%s-%s", rigName, polecatName)
+		sessionName := session.PolecatSessionName(rigPrefix, polecatName)
 
 		// Session running = not orphaned (work is being processed)
 		if d.tmux.IsAgentAlive(sessionName) {

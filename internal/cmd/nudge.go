@@ -585,17 +585,18 @@ func addressToAgentBeadID(address string) string {
 	rig := parts[0]
 	role := parts[1]
 
+	rigPrefix := session.PrefixForRig(rig)
 	switch role {
 	case "witness":
-		return fmt.Sprintf("gt-%s-witness", rig)
+		return session.WitnessSessionName(rigPrefix)
 	case "refinery":
-		return fmt.Sprintf("gt-%s-refinery", rig)
+		return session.RefinerySessionName(rigPrefix)
 	default:
 		// Assume polecat
 		if strings.HasPrefix(role, "crew/") {
 			crewName := strings.TrimPrefix(role, "crew/")
-			return fmt.Sprintf("gt-%s-crew-%s", rig, crewName)
+			return session.CrewSessionName(rigPrefix, crewName)
 		}
-		return fmt.Sprintf("gt-%s-polecat-%s", rig, role)
+		return fmt.Sprintf("%s-polecat-%s", rigPrefix, role)
 	}
 }

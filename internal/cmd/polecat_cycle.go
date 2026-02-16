@@ -109,7 +109,7 @@ func parsePolecatSessionName(sessionName string) (rigName, polecatName string, o
 }
 
 // findRigPolecatSessions returns all polecat sessions for a given rig.
-// Uses tmux list-sessions to find sessions matching gt-<rig>-<name> pattern,
+// Uses tmux list-sessions to find sessions matching <rigPrefix>-<name> pattern,
 // excluding crew, witness, and refinery sessions.
 func findRigPolecatSessions(rigName string) ([]string, error) { //nolint:unparam // error return kept for future use
 	cmd := exec.Command("tmux", "list-sessions", "-F", "#{session_name}")
@@ -119,7 +119,7 @@ func findRigPolecatSessions(rigName string) ([]string, error) { //nolint:unparam
 		return nil, nil
 	}
 
-	prefix := fmt.Sprintf("gt-%s-", rigName)
+	prefix := session.PrefixForRig(rigName) + "-"
 	var sessions []string
 
 	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {

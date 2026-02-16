@@ -1,12 +1,11 @@
 package cmd
 
 import (
-	"fmt"
 	"os/exec"
 	"sort"
-	"strings"
 
 	"github.com/spf13/cobra"
+	"github.com/steveyegge/gastown/internal/session"
 )
 
 // cycleSession is the --session flag for cycle next/prev commands.
@@ -79,10 +78,10 @@ Examples:
 // direction: 1 for next, -1 for previous
 // sessionOverride: if non-empty, use this instead of detecting current session
 func cycleToSession(direction int, sessionOverride string) error {
-	session := sessionOverride
-	if session == "" {
+	currentSess := sessionOverride
+	if currentSess == "" {
 		var err error
-		session, err = getCurrentTmuxSession()
+		currentSess, err = getCurrentTmuxSession()
 		if err != nil {
 			return nil // Not in tmux, nothing to do
 		}
@@ -92,25 +91,25 @@ func cycleToSession(direction int, sessionOverride string) error {
 	townLevelSessions := getTownLevelSessions()
 	if townLevelSessions != nil {
 		for _, townSession := range townLevelSessions {
-			if session == townSession {
-				return cycleTownSession(direction, session)
+			if currentSess == townSession {
+				return cycleTownSession(direction, currentSess)
 			}
 		}
 	}
 
-	// Check if it's a crew session (format: gt-<rig>-crew-<name>)
-	if strings.HasPrefix(session, "gt-") && strings.Contains(session, "-crew-") {
-		return cycleCrewSession(direction, session)
-	}
-
-	// Check if it's a rig infra session (witness or refinery)
-	if rig := parseRigInfraSession(session); rig != "" {
-		return cycleRigInfraSession(direction, session, rig)
-	}
-
-	// Check if it's a polecat session (gt-<rig>-<name>, not crew/witness/refinery)
-	if rig, _, ok := parsePolecatSessionName(session); ok && rig != "" {
-		return cyclePolecatSession(direction, session)
+	// Parse session name to determine type
+	identity, parseErr := session.ParseSessionName(currentSess)
+	if parseErr == nil {
+		switch identity.Role {
+		case session.RoleCrew:
+			return cycleCrewSession(direction, currentSess)
+		case session.RoleWitness, session.RoleRefinery:
+			return cycleRigInfraSession(direction, currentSess, identity.Rig)
+		case session.RolePolecat:
+			if identity.Rig != "" {
+				return cyclePolecatSession(direction, currentSess)
+			}
+		}
 	}
 
 	// Unknown session type - do nothing
@@ -119,19 +118,14 @@ func cycleToSession(direction int, sessionOverride string) error {
 
 // parseRigInfraSession extracts rig name if this is a witness or refinery session.
 // Returns empty string if not a rig infra session.
-// Format: gt-<rig>-witness or gt-<rig>-refinery
-func parseRigInfraSession(session string) string {
-	if !strings.HasPrefix(session, "gt-") {
+// Format: <rigPrefix>-witness or <rigPrefix>-refinery
+func parseRigInfraSession(sessionName string) string {
+	identity, err := session.ParseSessionName(sessionName)
+	if err != nil {
 		return ""
 	}
-	rest := session[3:] // Remove "gt-" prefix
-
-	// Check for -witness or -refinery suffix
-	if strings.HasSuffix(rest, "-witness") {
-		return strings.TrimSuffix(rest, "-witness")
-	}
-	if strings.HasSuffix(rest, "-refinery") {
-		return strings.TrimSuffix(rest, "-refinery")
+	if identity.Role == session.RoleWitness || identity.Role == session.RoleRefinery {
+		return identity.Rig
 	}
 	return ""
 }
@@ -139,8 +133,9 @@ func parseRigInfraSession(session string) string {
 // cycleRigInfraSession cycles between witness and refinery sessions for a rig.
 func cycleRigInfraSession(direction int, currentSession, rig string) error {
 	// Find running infra sessions for this rig
-	witnessSession := fmt.Sprintf("gt-%s-witness", rig)
-	refinerySession := fmt.Sprintf("gt-%s-refinery", rig)
+	rigPrefix := session.PrefixForRig(rig)
+	witnessSession := session.WitnessSessionName(rigPrefix)
+	refinerySession := session.RefinerySessionName(rigPrefix)
 
 	var sessions []string
 	allSessions, err := listTmuxSessions()

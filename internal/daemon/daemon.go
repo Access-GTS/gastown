@@ -1518,7 +1518,8 @@ func listPolecatWorktrees(polecatsDir string) ([]string, error) {
 // If the polecat has work-on-hook but the tmux session is dead, it's restarted.
 func (d *Daemon) checkPolecatHealth(rigName, polecatName string) {
 	// Build the expected tmux session name
-	sessionName := fmt.Sprintf("gt-%s-%s", rigName, polecatName)
+	rigPrefix := config.GetRigPrefix(d.config.TownRoot, rigName)
+	sessionName := session.PolecatSessionName(rigPrefix, polecatName)
 
 	// Check if tmux session exists
 	sessionAlive, err := d.tmux.HasSession(sessionName)
