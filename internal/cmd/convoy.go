@@ -1283,23 +1283,31 @@ func runConvoyStatus(cmd *cobra.Command, args []string) error {
 	}
 
 	if convoyStatusJSON {
+		lifecycle := "system-managed"
+		if isOwned {
+			lifecycle = "caller-managed"
+		}
 		type jsonStatus struct {
-			ID        string             `json:"id"`
-			Title     string             `json:"title"`
-			Status    string             `json:"status"`
-			Owned     bool               `json:"owned"`
-			Tracked   []trackedIssueInfo `json:"tracked"`
-			Completed int                `json:"completed"`
-			Total     int                `json:"total"`
+			ID            string             `json:"id"`
+			Title         string             `json:"title"`
+			Status        string             `json:"status"`
+			Owned         bool               `json:"owned"`
+			Lifecycle     string             `json:"lifecycle"`
+			MergeStrategy string             `json:"merge_strategy,omitempty"`
+			Tracked       []trackedIssueInfo `json:"tracked"`
+			Completed     int                `json:"completed"`
+			Total         int                `json:"total"`
 		}
 		out := jsonStatus{
-			ID:        convoy.ID,
-			Title:     convoy.Title,
-			Status:    convoy.Status,
-			Owned:     isOwned,
-			Tracked:   tracked,
-			Completed: completed,
-			Total:     len(tracked),
+			ID:            convoy.ID,
+			Title:         convoy.Title,
+			Status:        convoy.Status,
+			Owned:         isOwned,
+			Lifecycle:     lifecycle,
+			MergeStrategy: parseConvoyMergeStrategy(convoy.Description),
+			Tracked:       tracked,
+			Completed:     completed,
+			Total:         len(tracked),
 		}
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
@@ -1309,13 +1317,17 @@ func runConvoyStatus(cmd *cobra.Command, args []string) error {
 	// Human-readable output
 	fmt.Printf("🚚 %s %s\n\n", style.Bold.Render(convoy.ID+":"), convoy.Title)
 	fmt.Printf("  Status:    %s\n", formatConvoyStatus(convoy.Status))
+	fmt.Printf("  Owned:     %s\n", formatYesNo(isOwned))
 	if isOwned {
-		fmt.Printf("  Lifecycle: %s\n", style.Warning.Render("caller-managed (owned)"))
+		fmt.Printf("  Lifecycle: %s\n", style.Warning.Render("caller-managed"))
+	} else {
+		fmt.Printf("  Lifecycle: %s\n", "system-managed")
 	}
-	fmt.Printf("  Progress:  %d/%d completed\n", completed, len(tracked))
-	if merge := parseConvoyMergeStrategy(convoy.Description); merge != "" {
+	merge := parseConvoyMergeStrategy(convoy.Description)
+	if merge != "" {
 		fmt.Printf("  Merge:     %s\n", merge)
 	}
+	fmt.Printf("  Progress:  %d/%d completed\n", completed, len(tracked))
 	fmt.Printf("  Created:   %s\n", convoy.CreatedAt)
 	if convoy.ClosedAt != "" {
 		fmt.Printf("  Closed:    %s\n", convoy.ClosedAt)
@@ -1354,6 +1366,11 @@ func runConvoyStatus(cmd *cobra.Command, args []string) error {
 		}
 	}
 
+	// Hint for owned convoys when all issues are complete
+	if isOwned && completed == len(tracked) && len(tracked) > 0 && normalizeConvoyStatus(convoy.Status) == convoyStatusOpen {
+		fmt.Printf("\n  %s\n", style.Dim.Render("All issues complete. Land with: gt convoy land "+convoyID))
+	}
+
 	return nil
 }
 
@@ -1370,9 +1387,10 @@ func showAllConvoyStatus(townBeads string) error {
 	}
 
 	var convoys []struct {
-		ID     string `json:"id"`
-		Title  string `json:"title"`
-		Status string `json:"status"`
+		ID     string   `json:"id"`
+		Title  string   `json:"title"`
+		Status string   `json:"status"`
+		Labels []string `json:"labels"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &convoys); err != nil {
 		return fmt.Errorf("parsing convoy list: %w", err)
@@ -1392,7 +1410,11 @@ func showAllConvoyStatus(townBeads string) error {
 
 	fmt.Printf("%s\n\n", style.Bold.Render("Active Convoys"))
 	for _, c := range convoys {
-		fmt.Printf("  🚚 %s: %s\n", c.ID, c.Title)
+		ownedTag := ""
+		if hasLabel(c.Labels, "gt:owned") {
+			ownedTag = " " + style.Warning.Render("[owned]")
+		}
+		fmt.Printf("  🚚 %s: %s%s\n", c.ID, c.Title, ownedTag)
 	}
 	fmt.Printf("\nUse 'gt convoy status <id>' for detailed status.\n")
 
@@ -1424,10 +1446,11 @@ func runConvoyList(cmd *cobra.Command, args []string) error {
 	}
 
 	var convoys []struct {
-		ID        string `json:"id"`
-		Title     string `json:"title"`
-		Status    string `json:"status"`
-		CreatedAt string `json:"created_at"`
+		ID        string   `json:"id"`
+		Title     string   `json:"title"`
+		Status    string   `json:"status"`
+		CreatedAt string   `json:"created_at"`
+		Labels    []string `json:"labels"`
 	}
 	if err := json.Unmarshal(stdout.Bytes(), &convoys); err != nil {
 		return fmt.Errorf("parsing convoy list: %w", err)
@@ -1489,7 +1512,11 @@ func runConvoyList(cmd *cobra.Command, args []string) error {
 	fmt.Printf("%s\n\n", style.Bold.Render("Convoys"))
 	for i, c := range convoys {
 		status := formatConvoyStatus(c.Status)
-		fmt.Printf("  %d. 🚚 %s: %s %s\n", i+1, c.ID, c.Title, status)
+		ownedTag := ""
+		if hasLabel(c.Labels, "gt:owned") {
+			ownedTag = " " + style.Warning.Render("[owned]")
+		}
+		fmt.Printf("  %d. 🚚 %s: %s %s%s\n", i+1, c.ID, c.Title, status, ownedTag)
 	}
 	fmt.Printf("\nUse 'gt convoy status <id>' or 'gt convoy status <n>' for detailed view.\n")
 
@@ -1498,10 +1525,11 @@ func runConvoyList(cmd *cobra.Command, args []string) error {
 
 // printConvoyTree displays convoys with their child issues in a tree format.
 func printConvoyTree(townBeads string, convoys []struct {
-	ID        string `json:"id"`
-	Title     string `json:"title"`
-	Status    string `json:"status"`
-	CreatedAt string `json:"created_at"`
+	ID        string   `json:"id"`
+	Title     string   `json:"title"`
+	Status    string   `json:"status"`
+	CreatedAt string   `json:"created_at"`
+	Labels    []string `json:"labels"`
 }) error {
 	for _, c := range convoys {
 		// Get tracked issues for this convoy
@@ -1525,7 +1553,11 @@ func printConvoyTree(townBeads string, convoys []struct {
 		if total > 0 {
 			progress = fmt.Sprintf(" (%d/%d)", completed, total)
 		}
-		fmt.Printf("🚚 %s: %s%s\n", c.ID, c.Title, progress)
+		ownedTag := ""
+		if hasLabel(c.Labels, "gt:owned") {
+			ownedTag = " " + style.Warning.Render("[owned]")
+		}
+		fmt.Printf("🚚 %s: %s%s%s\n", c.ID, c.Title, progress, ownedTag)
 
 		// Print tracked issues as tree children
 		for i, t := range tracked {
@@ -1575,6 +1607,14 @@ func parseConvoyMergeStrategy(description string) string {
 		}
 	}
 	return ""
+}
+
+// formatYesNo returns "yes" or "no" for a boolean value.
+func formatYesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
 }
 
 func formatConvoyStatus(status string) string {
