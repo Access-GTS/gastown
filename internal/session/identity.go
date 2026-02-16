@@ -3,7 +3,9 @@ package session
 
 import (
 	"fmt"
+	"sort"
 	"strings"
+	"sync"
 )
 
 // Role represents the type of Gas Town agent.
@@ -20,9 +22,74 @@ const (
 
 // AgentIdentity represents a parsed Gas Town agent identity.
 type AgentIdentity struct {
-	Role Role   // mayor, deacon, witness, refinery, crew, polecat
-	Rig  string // rig name (empty for mayor/deacon)
-	Name string // crew/polecat name (empty for mayor/deacon/witness/refinery)
+	Role   Role   // mayor, deacon, witness, refinery, crew, polecat
+	Rig    string // rig name (empty for mayor/deacon)
+	Name   string // crew/polecat name (empty for mayor/deacon/witness/refinery)
+	Prefix string // beads prefix for the rig (e.g., "gt" for gastown)
+}
+
+// Prefix registry maps between rig names and their beads prefixes.
+// Used by ParseSessionName to determine rig from session prefix,
+// and by SessionName() to look up prefix from rig name.
+var (
+	prefixToRig = map[string]string{} // prefix → rig name
+	rigToPrefix = map[string]string{} // rig name → prefix
+	registryMu  sync.RWMutex
+)
+
+// RegisterRigPrefix registers a mapping between a rig name and its beads prefix.
+// This must be called at startup for each rig so that ParseSessionName can
+// correctly determine the rig from a session name.
+func RegisterRigPrefix(rigName, prefix string) {
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	prefixToRig[prefix] = rigName
+	rigToPrefix[rigName] = prefix
+}
+
+// PrefixForRig returns the beads prefix for a rig name.
+// Returns "gt" as fallback if the rig is not registered.
+func PrefixForRig(rigName string) string {
+	registryMu.RLock()
+	defer registryMu.RUnlock()
+	if p, ok := rigToPrefix[rigName]; ok {
+		return p
+	}
+	return "gt" // fallback for gastown default
+}
+
+// RigForPrefix returns the rig name for a beads prefix.
+// Returns the prefix itself as fallback if not registered (prefix often equals rig name).
+func RigForPrefix(prefix string) string {
+	registryMu.RLock()
+	defer registryMu.RUnlock()
+	if r, ok := prefixToRig[prefix]; ok {
+		return r
+	}
+	return prefix // fallback: prefix is often the rig name itself
+}
+
+// RegisteredPrefixes returns all registered prefixes sorted longest-first
+// for use in session name parsing (longest match wins).
+func RegisteredPrefixes() []string {
+	registryMu.RLock()
+	defer registryMu.RUnlock()
+	prefixes := make([]string, 0, len(prefixToRig))
+	for p := range prefixToRig {
+		prefixes = append(prefixes, p)
+	}
+	sort.Slice(prefixes, func(i, j int) bool {
+		return len(prefixes[i]) > len(prefixes[j])
+	})
+	return prefixes
+}
+
+// ClearPrefixRegistry clears the prefix registry. Used in tests.
+func ClearPrefixRegistry() {
+	registryMu.Lock()
+	defer registryMu.Unlock()
+	prefixToRig = map[string]string{}
+	rigToPrefix = map[string]string{}
 }
 
 // ParseAddress parses a mail-style address into an AgentIdentity.
@@ -83,105 +150,97 @@ func ParseAddress(address string) (*AgentIdentity, error) {
 // Session name formats:
 //   - hq-mayor → Role: mayor (town-level, one per machine)
 //   - hq-deacon → Role: deacon (town-level, one per machine)
-//   - gt-<rig>-witness → Role: witness, Rig: <rig>
-//   - gt-<rig>-refinery → Role: refinery, Rig: <rig>
-//   - gt-<rig>-crew-<name> → Role: crew, Rig: <rig>, Name: <name>
-//   - gt-<rig>-<name> → Role: polecat, Rig: <rig>, Name: <name>
+//   - <prefix>-witness → Role: witness, Rig: (looked up from prefix)
+//   - <prefix>-refinery → Role: refinery, Rig: (looked up from prefix)
+//   - <prefix>-crew-<name> → Role: crew, Rig: (looked up), Name: <name>
+//   - <prefix>-<name> → Role: polecat, Rig: (looked up), Name: <name>
 //
-// For polecat sessions without a crew marker, the last segment after the rig
-// is assumed to be the polecat name. This works for simple rig names but may
-// be ambiguous for rig names containing hyphens.
+// The prefix is the rig's beads prefix (e.g., "gt" for gastown, "bd" for beads).
+// RegisterRigPrefix must be called at startup to populate the prefix→rig mapping.
 func ParseSessionName(session string) (*AgentIdentity, error) {
 	// Check for town-level roles (hq- prefix)
 	if strings.HasPrefix(session, HQPrefix) {
 		suffix := strings.TrimPrefix(session, HQPrefix)
 		if suffix == "mayor" {
-			return &AgentIdentity{Role: RoleMayor}, nil
+			return &AgentIdentity{Role: RoleMayor, Prefix: "hq"}, nil
 		}
 		if suffix == "deacon" {
-			return &AgentIdentity{Role: RoleDeacon}, nil
+			return &AgentIdentity{Role: RoleDeacon, Prefix: "hq"}, nil
+		}
+		if suffix == "boot" {
+			return &AgentIdentity{Role: RoleDeacon, Name: "boot", Prefix: "hq"}, nil
+		}
+		if suffix == "overseer" {
+			return &AgentIdentity{Prefix: "hq"}, fmt.Errorf("invalid session name %q: overseer is not an agent", session)
 		}
 		return nil, fmt.Errorf("invalid session name %q: unknown hq- role", session)
 	}
 
-	// Rig-level roles use gt- prefix
-	if !strings.HasPrefix(session, Prefix) {
-		return nil, fmt.Errorf("invalid session name %q: missing %q or %q prefix", session, HQPrefix, Prefix)
-	}
-
-	suffix := strings.TrimPrefix(session, Prefix)
-	if suffix == "" {
-		return nil, fmt.Errorf("invalid session name %q: empty after prefix", session)
-	}
-
-	// Special case: gt-boot is the Boot watchdog (deacon infrastructure)
-	if suffix == "boot" {
-		return &AgentIdentity{Role: RoleDeacon, Name: "boot"}, nil
-	}
-
-	// Parse into parts for rig-level roles
-	parts := strings.Split(suffix, "-")
-	if len(parts) < 2 {
-		return nil, fmt.Errorf("invalid session name %q: expected rig-role format", session)
-	}
-
-	// Check for witness/refinery (suffix markers)
-	if parts[len(parts)-1] == "witness" {
-		rig := strings.Join(parts[:len(parts)-1], "-")
-		return &AgentIdentity{Role: RoleWitness, Rig: rig}, nil
-	}
-	if parts[len(parts)-1] == "refinery" {
-		rig := strings.Join(parts[:len(parts)-1], "-")
-		return &AgentIdentity{Role: RoleRefinery, Rig: rig}, nil
-	}
-
-	// Check for crew (marker in middle)
-	for i, p := range parts {
-		if p == "crew" && i > 0 && i < len(parts)-1 {
-			rig := strings.Join(parts[:i], "-")
-			name := strings.Join(parts[i+1:], "-")
-			return &AgentIdentity{Role: RoleCrew, Rig: rig, Name: name}, nil
+	// Try registered rig prefixes (longest match first to avoid ambiguity)
+	prefixes := RegisteredPrefixes()
+	for _, prefix := range prefixes {
+		marker := prefix + "-"
+		if !strings.HasPrefix(session, marker) {
+			continue
 		}
+		suffix := strings.TrimPrefix(session, marker)
+		if suffix == "" {
+			return nil, fmt.Errorf("invalid session name %q: empty after prefix", session)
+		}
+		rigName := RigForPrefix(prefix)
+		return parseRigSuffix(suffix, rigName, prefix)
 	}
 
-	// Legacy format: gt-witness-<rig> or gt-refinery-<rig>
-	// (role appears before rig, opposite of canonical format)
-	// NOTE: This collides with rigs named "witness" or "refinery" —
-	// polecats in such rigs would be misidentified as patrol agents.
-	// Restriction: do not name a rig "witness" or "refinery".
-	if parts[0] == "witness" && len(parts) >= 2 {
-		rig := strings.Join(parts[1:], "-")
-		return &AgentIdentity{Role: RoleWitness, Rig: rig}, nil
+	return nil, fmt.Errorf("invalid session name %q: no registered prefix matches", session)
+}
+
+// parseRigSuffix parses the suffix after the rig prefix to determine role and name.
+// suffix is everything after "<prefix>-", e.g., "witness", "crew-max", "furiosa".
+func parseRigSuffix(suffix, rigName, prefix string) (*AgentIdentity, error) {
+	// Check for witness/refinery
+	if suffix == "witness" {
+		return &AgentIdentity{Role: RoleWitness, Rig: rigName, Prefix: prefix}, nil
 	}
-	if parts[0] == "refinery" && len(parts) >= 2 {
-		rig := strings.Join(parts[1:], "-")
-		return &AgentIdentity{Role: RoleRefinery, Rig: rig}, nil
+	if suffix == "refinery" {
+		return &AgentIdentity{Role: RoleRefinery, Rig: rigName, Prefix: prefix}, nil
 	}
 
-	// Default to polecat: rig is everything except the last segment
-	if len(parts) < 2 {
-		return nil, fmt.Errorf("invalid session name %q: cannot determine rig/name", session)
+	// Check for crew (prefix: "crew-<name>")
+	if strings.HasPrefix(suffix, "crew-") {
+		name := strings.TrimPrefix(suffix, "crew-")
+		if name == "" {
+			return nil, fmt.Errorf("invalid session suffix %q: empty crew name", suffix)
+		}
+		return &AgentIdentity{Role: RoleCrew, Rig: rigName, Name: name, Prefix: prefix}, nil
 	}
-	rig := strings.Join(parts[:len(parts)-1], "-")
-	name := parts[len(parts)-1]
-	return &AgentIdentity{Role: RolePolecat, Rig: rig, Name: name}, nil
+
+	// Default to polecat
+	return &AgentIdentity{Role: RolePolecat, Rig: rigName, Name: suffix, Prefix: prefix}, nil
 }
 
 // SessionName returns the tmux session name for this identity.
+// Uses a.Prefix if set, otherwise looks up the prefix from the registry.
 func (a *AgentIdentity) SessionName() string {
+	prefix := a.Prefix
+	if prefix == "" {
+		prefix = PrefixForRig(a.Rig)
+	}
 	switch a.Role {
 	case RoleMayor:
 		return MayorSessionName()
 	case RoleDeacon:
+		if a.Name == "boot" {
+			return BootSessionName()
+		}
 		return DeaconSessionName()
 	case RoleWitness:
-		return WitnessSessionName(a.Rig)
+		return WitnessSessionName(prefix)
 	case RoleRefinery:
-		return RefinerySessionName(a.Rig)
+		return RefinerySessionName(prefix)
 	case RoleCrew:
-		return CrewSessionName(a.Rig, a.Name)
+		return CrewSessionName(prefix, a.Name)
 	case RolePolecat:
-		return PolecatSessionName(a.Rig, a.Name)
+		return PolecatSessionName(prefix, a.Name)
 	default:
 		return ""
 	}

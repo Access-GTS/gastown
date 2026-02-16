@@ -5,6 +5,15 @@ import (
 )
 
 func TestParseSessionName(t *testing.T) {
+	// Register prefixes for test
+	ClearPrefixRegistry()
+	RegisterRigPrefix("gastown", "gt")
+	RegisterRigPrefix("beads", "bd")
+	RegisterRigPrefix("hop", "hop")
+	RegisterRigPrefix("sky", "sky")
+	RegisterRigPrefix("foo-bar", "fb")
+	defer ClearPrefixRegistry()
+
 	tests := []struct {
 		name     string
 		session  string
@@ -25,52 +34,66 @@ func TestParseSessionName(t *testing.T) {
 			wantRole: RoleDeacon,
 		},
 
-		// Witness (simple rig)
+		// Boot watchdog (town-level)
 		{
-			name:     "witness simple rig",
-			session:  "gt-gastown-witness",
-			wantRole: RoleWitness,
-			wantRig:  "gastown",
-		},
-		{
-			name:     "witness hyphenated rig",
-			session:  "gt-foo-bar-witness",
-			wantRole: RoleWitness,
-			wantRig:  "foo-bar",
+			name:     "boot",
+			session:  "hq-boot",
+			wantRole: RoleDeacon,
+			wantName: "boot",
 		},
 
-		// Refinery (simple rig)
+		// Witness (using rig prefix)
 		{
-			name:     "refinery simple rig",
-			session:  "gt-gastown-refinery",
+			name:     "witness gastown",
+			session:  "gt-witness",
+			wantRole: RoleWitness,
+			wantRig:  "gastown",
+		},
+		{
+			name:     "witness beads",
+			session:  "bd-witness",
+			wantRole: RoleWitness,
+			wantRig:  "beads",
+		},
+		{
+			name:     "witness hop",
+			session:  "hop-witness",
+			wantRole: RoleWitness,
+			wantRig:  "hop",
+		},
+
+		// Refinery (using rig prefix)
+		{
+			name:     "refinery gastown",
+			session:  "gt-refinery",
 			wantRole: RoleRefinery,
 			wantRig:  "gastown",
 		},
 		{
-			name:     "refinery hyphenated rig",
-			session:  "gt-my-project-refinery",
+			name:     "refinery beads",
+			session:  "bd-refinery",
 			wantRole: RoleRefinery,
-			wantRig:  "my-project",
+			wantRig:  "beads",
 		},
 
 		// Crew (with marker)
 		{
-			name:     "crew simple",
-			session:  "gt-gastown-crew-max",
+			name:     "crew gastown",
+			session:  "gt-crew-max",
 			wantRole: RoleCrew,
 			wantRig:  "gastown",
 			wantName: "max",
 		},
 		{
-			name:     "crew hyphenated rig",
-			session:  "gt-foo-bar-crew-alice",
+			name:     "crew beads",
+			session:  "bd-crew-alice",
 			wantRole: RoleCrew,
-			wantRig:  "foo-bar",
+			wantRig:  "beads",
 			wantName: "alice",
 		},
 		{
 			name:     "crew hyphenated name",
-			session:  "gt-gastown-crew-my-worker",
+			session:  "gt-crew-my-worker",
 			wantRole: RoleCrew,
 			wantRig:  "gastown",
 			wantName: "my-worker",
@@ -78,62 +101,36 @@ func TestParseSessionName(t *testing.T) {
 
 		// Polecat (fallback)
 		{
-			name:     "polecat simple",
-			session:  "gt-gastown-morsov",
+			name:     "polecat gastown",
+			session:  "gt-morsov",
 			wantRole: RolePolecat,
 			wantRig:  "gastown",
 			wantName: "morsov",
 		},
 		{
-			name:     "polecat hyphenated rig",
-			session:  "gt-foo-bar-Toast",
+			name:     "polecat beads",
+			session:  "bd-worker1",
 			wantRole: RolePolecat,
-			wantRig:  "foo-bar",
-			wantName: "Toast",
-		},
-
-		// Legacy format: gt-witness-<rig> (role before rig)
-		{
-			name:     "legacy witness",
-			session:  "gt-witness-gastown",
-			wantRole: RoleWitness,
-			wantRig:  "gastown",
+			wantRig:  "beads",
+			wantName: "worker1",
 		},
 		{
-			name:     "legacy witness hyphenated rig",
-			session:  "gt-witness-foo-bar",
-			wantRole: RoleWitness,
-			wantRig:  "foo-bar",
-		},
-		{
-			name:     "legacy refinery",
-			session:  "gt-refinery-gastown",
-			wantRole: RoleRefinery,
-			wantRig:  "gastown",
-		},
-
-		// Boot watchdog
-		{
-			name:     "boot",
-			session:  "gt-boot",
-			wantRole: RoleDeacon,
-			wantName: "boot",
+			name:     "polecat hop",
+			session:  "hop-ostrom",
+			wantRole: RolePolecat,
+			wantRig:  "hop",
+			wantName: "ostrom",
 		},
 
 		// Error cases
 		{
-			name:    "missing prefix",
-			session: "gastown-witness",
+			name:    "unregistered prefix",
+			session: "xyz-witness",
 			wantErr: true,
 		},
 		{
-			name:    "empty after prefix",
-			session: "gt-",
-			wantErr: true,
-		},
-		{
-			name:    "just prefix single segment",
-			session: "gt-x",
+			name:    "empty",
+			session: "",
 			wantErr: true,
 		},
 	}
@@ -162,6 +159,13 @@ func TestParseSessionName(t *testing.T) {
 }
 
 func TestAgentIdentity_SessionName(t *testing.T) {
+	// Register prefixes for test
+	ClearPrefixRegistry()
+	RegisterRigPrefix("gastown", "gt")
+	RegisterRigPrefix("beads", "bd")
+	RegisterRigPrefix("my-project", "mp")
+	defer ClearPrefixRegistry()
+
 	tests := []struct {
 		name     string
 		identity AgentIdentity
@@ -178,24 +182,39 @@ func TestAgentIdentity_SessionName(t *testing.T) {
 			want:     "hq-deacon",
 		},
 		{
-			name:     "witness",
+			name:     "boot",
+			identity: AgentIdentity{Role: RoleDeacon, Name: "boot"},
+			want:     "hq-boot",
+		},
+		{
+			name:     "witness with prefix",
+			identity: AgentIdentity{Role: RoleWitness, Rig: "gastown", Prefix: "gt"},
+			want:     "gt-witness",
+		},
+		{
+			name:     "witness via registry",
 			identity: AgentIdentity{Role: RoleWitness, Rig: "gastown"},
-			want:     "gt-gastown-witness",
+			want:     "gt-witness",
 		},
 		{
 			name:     "refinery",
-			identity: AgentIdentity{Role: RoleRefinery, Rig: "my-project"},
-			want:     "gt-my-project-refinery",
+			identity: AgentIdentity{Role: RoleRefinery, Rig: "my-project", Prefix: "mp"},
+			want:     "mp-refinery",
 		},
 		{
 			name:     "crew",
-			identity: AgentIdentity{Role: RoleCrew, Rig: "gastown", Name: "max"},
-			want:     "gt-gastown-crew-max",
+			identity: AgentIdentity{Role: RoleCrew, Rig: "gastown", Name: "max", Prefix: "gt"},
+			want:     "gt-crew-max",
 		},
 		{
 			name:     "polecat",
-			identity: AgentIdentity{Role: RolePolecat, Rig: "gastown", Name: "morsov"},
-			want:     "gt-gastown-morsov",
+			identity: AgentIdentity{Role: RolePolecat, Rig: "gastown", Name: "morsov", Prefix: "gt"},
+			want:     "gt-morsov",
+		},
+		{
+			name:     "polecat beads",
+			identity: AgentIdentity{Role: RolePolecat, Rig: "beads", Name: "worker1", Prefix: "bd"},
+			want:     "bd-worker1",
 		},
 	}
 
@@ -256,14 +275,19 @@ func TestAgentIdentity_Address(t *testing.T) {
 }
 
 func TestParseSessionName_RoundTrip(t *testing.T) {
-	// Test that parsing then reconstructing gives the same result
+	// Register prefixes for test
+	ClearPrefixRegistry()
+	RegisterRigPrefix("gastown", "gt")
+	RegisterRigPrefix("foo-bar", "fb")
+	defer ClearPrefixRegistry()
+
 	sessions := []string{
 		"hq-mayor",
 		"hq-deacon",
-		"gt-gastown-witness",
-		"gt-foo-bar-refinery",
-		"gt-gastown-crew-max",
-		"gt-gastown-morsov",
+		"gt-witness",
+		"fb-refinery",
+		"gt-crew-max",
+		"gt-morsov",
 	}
 
 	for _, sess := range sessions {
@@ -340,9 +364,51 @@ func TestParseAddress(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ParseAddress(%q) error = %v", tt.address, err)
 			}
-			if *got != tt.want {
+			if got.Role != tt.want.Role || got.Rig != tt.want.Rig || got.Name != tt.want.Name {
 				t.Fatalf("ParseAddress(%q) = %#v, want %#v", tt.address, *got, tt.want)
 			}
 		})
+	}
+}
+
+func TestPrefixRegistry(t *testing.T) {
+	ClearPrefixRegistry()
+	defer ClearPrefixRegistry()
+
+	// Test registration
+	RegisterRigPrefix("gastown", "gt")
+	RegisterRigPrefix("beads", "bd")
+
+	// Test PrefixForRig
+	if got := PrefixForRig("gastown"); got != "gt" {
+		t.Errorf("PrefixForRig(gastown) = %q, want %q", got, "gt")
+	}
+	if got := PrefixForRig("beads"); got != "bd" {
+		t.Errorf("PrefixForRig(beads) = %q, want %q", got, "bd")
+	}
+	if got := PrefixForRig("unknown"); got != "gt" {
+		t.Errorf("PrefixForRig(unknown) = %q, want %q (fallback)", got, "gt")
+	}
+
+	// Test RigForPrefix
+	if got := RigForPrefix("gt"); got != "gastown" {
+		t.Errorf("RigForPrefix(gt) = %q, want %q", got, "gastown")
+	}
+	if got := RigForPrefix("bd"); got != "beads" {
+		t.Errorf("RigForPrefix(bd) = %q, want %q", got, "beads")
+	}
+	if got := RigForPrefix("xyz"); got != "xyz" {
+		t.Errorf("RigForPrefix(xyz) = %q, want %q (fallback)", got, "xyz")
+	}
+
+	// Test RegisteredPrefixes returns longest first
+	RegisterRigPrefix("my-rig", "my-rig")
+	prefixes := RegisteredPrefixes()
+	if len(prefixes) < 3 {
+		t.Fatalf("RegisteredPrefixes() returned %d, want >= 3", len(prefixes))
+	}
+	// my-rig (6 chars) should come before gt (2 chars)
+	if prefixes[0] != "my-rig" {
+		t.Errorf("RegisteredPrefixes()[0] = %q, want %q (longest first)", prefixes[0], "my-rig")
 	}
 }

@@ -248,15 +248,10 @@ func (c *OrphanSessionCheck) isValidSession(sess string, validRigs []string, may
 	}
 
 	if !rigFound && identity.Role == session.RolePolecat {
-		// Try alternate rig interpretations: check if any valid rig
-		// is a prefix of the session suffix (after gt-)
-		suffix := strings.TrimPrefix(sess, session.Prefix)
-		for _, r := range validRigs {
-			if strings.HasPrefix(suffix, r+"-") {
-				rigFound = true
-				break
-			}
-		}
+		// With prefix-based session names, ParseSessionName uses the registry
+		// to determine the rig. If the rig isn't in validRigs, it's an orphan.
+		// No fallback prefix stripping needed since the registry handles this.
+		_ = validRigs // already checked above
 	}
 
 	if !rigFound {
