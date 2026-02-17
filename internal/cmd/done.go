@@ -599,6 +599,15 @@ func runDone(cmd *cobra.Command, args []string) (retErr error) {
 		if agentBeadID != "" {
 			cpBd := beads.New(beads.ResolveBeadsDir(cwd))
 			writeDoneCheckpoint(cpBd, agentBeadID, CheckpointPushed, branch)
+
+			// Write cleanup_status=clean early so the witness can auto-nuke if we
+			// crash between push and the end of gt done. Without this, cleanup_status
+			// stays empty, and the witness falls back to verifyCommitOnMain which
+			// can't verify until the branch is merged.
+			// See gt-rl89c: polecats exit without completing gt done.
+			if doneCleanupStatus == "clean" {
+				_ = cpBd.UpdateAgentCleanupStatus(agentBeadID, "clean")
+			}
 		}
 
 	afterPush:

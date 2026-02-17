@@ -365,6 +365,41 @@ func (m *Manager) getCleanupStatusFromBead(name string) CleanupStatus {
 	return CleanupStatus(fields.CleanupStatus)
 }
 
+// resetHookBead resets a polecat's hooked bead (issue) back to "open" status so it
+// can be re-dispatched. This is called during nuke to prevent beads from getting stuck
+// in hooked/in_progress status when a polecat crashes before running gt done.
+// Also attempts to close the attached molecule (best-effort) so the bead is clean
+// for re-dispatch with a fresh molecule.
+// Non-fatal: logs warnings but doesn't block the nuke on failure.
+// See gt-rl89c: polecats exit without completing gt done — beads stuck IN_PROGRESS.
+func (m *Manager) resetHookBead(hookBeadID, polecatName string) {
+	// Only reset beads that are actually stuck (hooked or in_progress)
+	issue, err := m.beads.Show(hookBeadID)
+	if err != nil {
+		return // Bead not found or query failed — nothing to reset
+	}
+	if issue.Status != "hooked" && issue.Status != "in_progress" {
+		return // Bead already closed/open — don't interfere
+	}
+
+	// Best-effort: close the attached molecule so the bead is clean for re-dispatch.
+	// If this fails (e.g., steps still open), DetectOrphanedMolecules patrol handles it.
+	attachment := beads.ParseAttachmentFields(issue)
+	if attachment != nil && attachment.AttachedMolecule != "" {
+		_ = m.beads.CloseWithReason("polecat nuked before gt done (gt-rl89c)", attachment.AttachedMolecule)
+	}
+
+	// Reset status to open and clear assignee
+	open := "open"
+	empty := ""
+	if err := m.beads.Update(hookBeadID, beads.UpdateOptions{
+		Status:   &open,
+		Assignee: &empty,
+	}); err != nil {
+		fmt.Printf("Warning: could not reset hook bead %s for polecat %s: %v\n", hookBeadID, polecatName, err)
+	}
+}
+
 // checkCleanupStatus validates the cleanup status against removal safety rules.
 // Returns an error if removal should be blocked based on the status.
 // force=true: allow has_uncommitted, block has_stash and has_unpushed
@@ -832,6 +867,17 @@ func (m *Manager) RemoveWithOptions(name string, force, nuclear, selfNuke bool) 
 		}
 	}
 
+	// Read hook_bead from agent bead BEFORE resetting it.
+	// We need this to reset the hooked issue back to "open" status after the
+	// agent bead is cleared. Without this, nuking a polecat that crashed before
+	// gt done leaves the issue stuck in IN_PROGRESS/hooked status forever.
+	// See gt-rl89c: polecats exit without completing gt done.
+	agentID := m.agentBeadID(name)
+	var hookBeadToReset string
+	if _, fields, aErr := m.beads.GetAgentBead(agentID); aErr == nil && fields != nil {
+		hookBeadToReset = fields.HookBead
+	}
+
 	// Reset agent bead FIRST, before any filesystem operations.
 	// This prevents a race where a concurrent sling allocates the same name,
 	// sets hook_bead, and then has it cleared by this cleanup. By resetting
@@ -839,12 +885,21 @@ func (m *Manager) RemoveWithOptions(name string, force, nuclear, selfNuke bool) 
 	// concurrent slings see a clean bead and CreateOrReopenAgentBead can
 	// simply update it without needing close/reopen (which fails on Dolt).
 	// See gt-14b8o: close/reopen cycle breaks on Dolt backend.
-	agentID := m.agentBeadID(name)
 	if err := m.beads.ResetAgentBeadForReuse(agentID, "polecat removed"); err != nil {
 		// Only log if not "not found" - it's ok if it doesn't exist
 		if !errors.Is(err, beads.ErrNotFound) {
 			fmt.Printf("Warning: could not reset agent bead %s: %v\n", agentID, err)
 		}
+	}
+
+	// Reset the hook bead (issue) back to "open" so it can be re-dispatched.
+	// Previously, nuke only reset the agent bead (clearing hook_bead field) but
+	// left the actual issue in hooked/in_progress status. Any code path that
+	// called nuke without going through DetectZombiePolecats (which has its own
+	// resetAbandonedBead call) would leave beads permanently stuck.
+	// See gt-rl89c: polecats exit without completing gt done.
+	if hookBeadToReset != "" {
+		m.resetHookBead(hookBeadToReset, name)
 	}
 
 	// Check if user's shell is cd'd into the worktree (prevents broken shell)
