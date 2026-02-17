@@ -224,6 +224,14 @@ type ParsedIdentity struct {
 // parseIdentity extracts role type, rig name, and agent name from an identity string.
 // This is the ONLY place where identity string patterns are parsed.
 // All other functions should use the extracted components to look up role config.
+//
+// Identity strings come in two formats:
+//   - Dash format (session names): <prefix>-crew-<name>, <prefix>-witness, etc.
+//   - Slash format (mail addresses): <rig>/crew/<name>, <rig>/witness, etc.
+//
+// For dash format, the prefix is resolved to a rig name via the session registry
+// (e.g., "bd" → "beads"). Without this resolution, the prefix would be used as
+// a directory name, producing wrong paths like ~/gt/bd/ instead of ~/gt/beads/.
 func parseIdentity(identity string) (*ParsedIdentity, error) {
 	switch identity {
 	case "mayor":
@@ -232,31 +240,25 @@ func parseIdentity(identity string) (*ParsedIdentity, error) {
 		return &ParsedIdentity{RoleType: "deacon"}, nil
 	}
 
-	// Pattern: <rig>-witness → witness role
-	if strings.HasSuffix(identity, "-witness") {
-		rigName := strings.TrimSuffix(identity, "-witness")
+	// --- Slash format (mail addresses): <rig>/<role>[/<name>] ---
+
+	// Pattern: <rig>/witness → witness role (slash format)
+	if strings.HasSuffix(identity, "/witness") {
+		rigName := strings.TrimSuffix(identity, "/witness")
 		return &ParsedIdentity{RoleType: "witness", RigName: rigName}, nil
 	}
 
-	// Pattern: <rig>-refinery → refinery role
-	if strings.HasSuffix(identity, "-refinery") {
-		rigName := strings.TrimSuffix(identity, "-refinery")
+	// Pattern: <rig>/refinery → refinery role (slash format)
+	if strings.HasSuffix(identity, "/refinery") {
+		rigName := strings.TrimSuffix(identity, "/refinery")
 		return &ParsedIdentity{RoleType: "refinery", RigName: rigName}, nil
 	}
 
-	// Pattern: <rig>-crew-<name> → crew role
-	if strings.Contains(identity, "-crew-") {
-		parts := strings.SplitN(identity, "-crew-", 2)
-		if len(parts) == 2 {
+	// Pattern: <rig>/crew/<name> → crew role (slash format)
+	if strings.Contains(identity, "/crew/") {
+		parts := strings.SplitN(identity, "/crew/", 2)
+		if len(parts) == 2 && parts[0] != "" && parts[1] != "" {
 			return &ParsedIdentity{RoleType: "crew", RigName: parts[0], AgentName: parts[1]}, nil
-		}
-	}
-
-	// Pattern: <rig>-polecat-<name> → polecat role
-	if strings.Contains(identity, "-polecat-") {
-		parts := strings.SplitN(identity, "-polecat-", 2)
-		if len(parts) == 2 {
-			return &ParsedIdentity{RoleType: "polecat", RigName: parts[0], AgentName: parts[1]}, nil
 		}
 	}
 
@@ -265,6 +267,39 @@ func parseIdentity(identity string) (*ParsedIdentity, error) {
 		parts := strings.Split(identity, "/polecats/")
 		if len(parts) == 2 {
 			return &ParsedIdentity{RoleType: "polecat", RigName: parts[0], AgentName: parts[1]}, nil
+		}
+	}
+
+	// --- Dash format (session names): <prefix>-<role>[-<name>] ---
+	// The prefix portion is a beads prefix (e.g., "bd"), NOT the rig name (e.g., "beads").
+	// We must resolve prefix → rig name via the session registry.
+	registry := session.DefaultRegistry()
+
+	// Pattern: <prefix>-witness → witness role
+	if strings.HasSuffix(identity, "-witness") {
+		prefix := strings.TrimSuffix(identity, "-witness")
+		return &ParsedIdentity{RoleType: "witness", RigName: registry.RigForPrefix(prefix)}, nil
+	}
+
+	// Pattern: <prefix>-refinery → refinery role
+	if strings.HasSuffix(identity, "-refinery") {
+		prefix := strings.TrimSuffix(identity, "-refinery")
+		return &ParsedIdentity{RoleType: "refinery", RigName: registry.RigForPrefix(prefix)}, nil
+	}
+
+	// Pattern: <prefix>-crew-<name> → crew role
+	if strings.Contains(identity, "-crew-") {
+		parts := strings.SplitN(identity, "-crew-", 2)
+		if len(parts) == 2 {
+			return &ParsedIdentity{RoleType: "crew", RigName: registry.RigForPrefix(parts[0]), AgentName: parts[1]}, nil
+		}
+	}
+
+	// Pattern: <prefix>-polecat-<name> → polecat role
+	if strings.Contains(identity, "-polecat-") {
+		parts := strings.SplitN(identity, "-polecat-", 2)
+		if len(parts) == 2 {
+			return &ParsedIdentity{RoleType: "polecat", RigName: registry.RigForPrefix(parts[0]), AgentName: parts[1]}, nil
 		}
 	}
 

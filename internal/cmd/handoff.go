@@ -607,10 +607,10 @@ func sessionWorkDir(sessionName, townRoot string) (string, error) {
 		return townRoot + "/deacon", nil
 
 	case strings.Contains(sessionName, "-crew-"):
-		// gt-<rig>-crew-<name> -> <townRoot>/<rig>/crew/<name>
-		rig, name, ok := parseCrewSessionName(sessionName)
-		if !ok {
-			return "", fmt.Errorf("cannot parse crew session name: %s", sessionName)
+		// <prefix>-crew-<name> -> <townRoot>/<rig>/crew/<name>
+		rig, name, err := parseCrewSessionName(sessionName)
+		if err != nil {
+			return "", fmt.Errorf("cannot parse crew session name %q: %w", sessionName, err)
 		}
 		return fmt.Sprintf("%s/%s/crew/%s", townRoot, rig, name), nil
 

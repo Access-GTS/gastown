@@ -14,6 +14,7 @@ func setupHandoffTestRegistry(t *testing.T) {
 	t.Helper()
 	reg := session.NewPrefixRegistry()
 	reg.Register("gt", "gastown")
+	reg.Register("bd", "beads")
 	old := session.DefaultRegistry()
 	session.SetDefaultRegistry(reg)
 	t.Cleanup(func() { session.SetDefaultRegistry(old) })
@@ -80,6 +81,24 @@ func TestSessionWorkDir(t *testing.T) {
 			name:        "refinery runs from refinery/rig directory",
 			sessionName: "gt-refinery",
 			wantDir:     townRoot + "/gastown/refinery/rig",
+			wantErr:     false,
+		},
+		{
+			name:        "crew with non-default prefix resolves to rig name",
+			sessionName: "bd-crew-emma",
+			wantDir:     townRoot + "/beads/crew/emma",
+			wantErr:     false,
+		},
+		{
+			name:        "witness with non-default prefix resolves to rig name",
+			sessionName: "bd-witness",
+			wantDir:     townRoot + "/beads/witness",
+			wantErr:     false,
+		},
+		{
+			name:        "refinery with non-default prefix resolves to rig name",
+			sessionName: "bd-refinery",
+			wantDir:     townRoot + "/beads/refinery/rig",
 			wantErr:     false,
 		},
 	}

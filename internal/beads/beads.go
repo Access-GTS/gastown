@@ -489,7 +489,7 @@ func (b *Beads) ReadyForMol(moleculeID string) ([]*Issue, error) {
 // Uses bd ready --label flag for server-side filtering.
 // The issueType is converted to a gt:<type> label (e.g., "molecule" -> "gt:molecule").
 func (b *Beads) ReadyWithType(issueType string) ([]*Issue, error) {
-	out, err := b.run("ready", "--json", "--label", "gt:"+issueType, "-n", "100")
+	out, err := b.run("ready", "--json", "--label", "gt:"+issueType, "--include-ephemeral", "-n", "100")
 	if err != nil {
 		return nil, err
 	}

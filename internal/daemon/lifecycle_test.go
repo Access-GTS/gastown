@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/steveyegge/gastown/internal/session"
 )
 
 // testDaemon creates a minimal Daemon for testing.
@@ -178,6 +180,106 @@ func TestParseLifecycleRequest_AlwaysUsesFromField(t *testing.T) {
 	}
 	if result.From != "the-sender" {
 		t.Errorf("parseLifecycleRequest() from = %q, expected 'the-sender'", result.From)
+	}
+}
+
+func TestParseIdentity_DashFormat(t *testing.T) {
+	// Set up registry so prefix resolution works
+	reg := session.NewPrefixRegistry()
+	reg.Register("gt", "gastown")
+	reg.Register("bd", "beads")
+	old := session.DefaultRegistry()
+	session.SetDefaultRegistry(reg)
+	defer session.SetDefaultRegistry(old)
+
+	tests := []struct {
+		identity  string
+		wantRole  string
+		wantRig   string
+		wantAgent string
+	}{
+		{"mayor", "mayor", "", ""},
+		{"deacon", "deacon", "", ""},
+		{"gt-witness", "witness", "gastown", ""},
+		{"bd-witness", "witness", "beads", ""},
+		{"gt-refinery", "refinery", "gastown", ""},
+		{"bd-refinery", "refinery", "beads", ""},
+		{"gt-crew-holden", "crew", "gastown", "holden"},
+		{"bd-crew-emma", "crew", "beads", "emma"},
+		{"gt-polecat-toast", "polecat", "gastown", "toast"},
+		{"bd-polecat-furiosa", "polecat", "beads", "furiosa"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.identity, func(t *testing.T) {
+			parsed, err := parseIdentity(tc.identity)
+			if err != nil {
+				t.Fatalf("parseIdentity(%q) error: %v", tc.identity, err)
+			}
+			if parsed.RoleType != tc.wantRole {
+				t.Errorf("RoleType = %q, want %q", parsed.RoleType, tc.wantRole)
+			}
+			if parsed.RigName != tc.wantRig {
+				t.Errorf("RigName = %q, want %q", parsed.RigName, tc.wantRig)
+			}
+			if parsed.AgentName != tc.wantAgent {
+				t.Errorf("AgentName = %q, want %q", parsed.AgentName, tc.wantAgent)
+			}
+		})
+	}
+}
+
+func TestParseIdentity_SlashFormat(t *testing.T) {
+	tests := []struct {
+		identity  string
+		wantRole  string
+		wantRig   string
+		wantAgent string
+	}{
+		{"beads/witness", "witness", "beads", ""},
+		{"gastown/refinery", "refinery", "gastown", ""},
+		{"beads/crew/emma", "crew", "beads", "emma"},
+		{"gastown/crew/holden", "crew", "gastown", "holden"},
+		{"beads/polecats/toast", "polecat", "beads", "toast"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.identity, func(t *testing.T) {
+			parsed, err := parseIdentity(tc.identity)
+			if err != nil {
+				t.Fatalf("parseIdentity(%q) error: %v", tc.identity, err)
+			}
+			if parsed.RoleType != tc.wantRole {
+				t.Errorf("RoleType = %q, want %q", parsed.RoleType, tc.wantRole)
+			}
+			if parsed.RigName != tc.wantRig {
+				t.Errorf("RigName = %q, want %q", parsed.RigName, tc.wantRig)
+			}
+			if parsed.AgentName != tc.wantAgent {
+				t.Errorf("AgentName = %q, want %q", parsed.AgentName, tc.wantAgent)
+			}
+		})
+	}
+}
+
+func TestParseIdentity_PrefixResolvesToRigName(t *testing.T) {
+	// This test specifically verifies that dash-format identities resolve
+	// the prefix to the rig name, not use the prefix as a directory name.
+	// This was the root cause of a bug (bead gt-as0wft)
+	// where "bd-crew-emma" produced RigName="bd" instead of "beads",
+	// causing work_dir to be ~/gt/bd/crew/emma instead of ~/gt/beads/crew/emma.
+	reg := session.NewPrefixRegistry()
+	reg.Register("bd", "beads")
+	old := session.DefaultRegistry()
+	session.SetDefaultRegistry(reg)
+	defer session.SetDefaultRegistry(old)
+
+	parsed, err := parseIdentity("bd-crew-emma")
+	if err != nil {
+		t.Fatalf("parseIdentity error: %v", err)
+	}
+	if parsed.RigName != "beads" {
+		t.Errorf("RigName = %q, want %q (prefix 'bd' should resolve to rig name 'beads')", parsed.RigName, "beads")
 	}
 }
 

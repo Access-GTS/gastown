@@ -35,8 +35,8 @@ func cycleCrewSession(direction int, sessionOverride string) error {
 	}
 
 	// Parse rig name from current session
-	rigName, _, ok := parseCrewSessionName(currentSession)
-	if !ok {
+	rigName, _, err := parseCrewSessionName(currentSession)
+	if err != nil {
 		// Not a crew session (e.g., Mayor, Witness, Refinery) - no cycling, just stay put
 		return nil
 	}
