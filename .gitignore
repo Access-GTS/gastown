@@ -61,6 +61,7 @@ settings/
 .events.jsonl.lock
 .sqlhistory
 .fork-integration.json
+.swarm-locks/
 
 # Nix build
 result

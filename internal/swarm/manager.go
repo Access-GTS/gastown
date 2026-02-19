@@ -5,8 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strings"
+
+	"github.com/gofrs/flock"
 
 	"github.com/steveyegge/gastown/internal/rig"
 )
@@ -35,6 +39,22 @@ func NewManager(r *rig.Rig) *Manager {
 		beadsDir: r.BeadsPath(), // Use BeadsPath() for git-synced beads operations
 		gitDir:   r.Path,        // Use rig root for git operations
 	}
+}
+
+// lockSwarm acquires an exclusive file lock for a specific swarm's git operations.
+// This prevents concurrent merge/checkout races on the integration branch.
+// Caller must defer fl.Unlock().
+func (m *Manager) lockSwarm(swarmID string) (*flock.Flock, error) {
+	lockDir := filepath.Join(m.gitDir, ".swarm-locks")
+	if err := os.MkdirAll(lockDir, 0755); err != nil {
+		return nil, fmt.Errorf("creating swarm lock dir: %w", err)
+	}
+	lockPath := filepath.Join(lockDir, swarmID+".lock")
+	fl := flock.New(lockPath)
+	if err := fl.Lock(); err != nil {
+		return nil, fmt.Errorf("acquiring swarm lock for %s: %w", swarmID, err)
+	}
+	return fl, nil
 }
 
 // LoadSwarm loads swarm state from beads by querying the epic.

@@ -1,6 +1,9 @@
 package swarm
 
 import (
+	"os"
+	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/steveyegge/gastown/internal/rig"
@@ -61,6 +64,108 @@ func TestIsCompleteNotFound(t *testing.T) {
 	if err != ErrSwarmNotFound {
 		t.Errorf("IsComplete = %v, want ErrSwarmNotFound", err)
 	}
+}
+
+// TestLockSwarm tests that lockSwarm creates lock files and provides mutual exclusion.
+func TestLockSwarm(t *testing.T) {
+	tmpDir := t.TempDir()
+	r := &rig.Rig{
+		Name: "test-rig",
+		Path: tmpDir,
+	}
+	m := NewManager(r)
+
+	// Acquire lock
+	fl, err := m.lockSwarm("test-swarm")
+	if err != nil {
+		t.Fatalf("lockSwarm failed: %v", err)
+	}
+
+	// Verify lock file exists
+	lockPath := filepath.Join(tmpDir, ".swarm-locks", "test-swarm.lock")
+	if _, err := os.Stat(lockPath); os.IsNotExist(err) {
+		t.Error("lock file should exist after locking")
+	}
+
+	// Release lock
+	if err := fl.Unlock(); err != nil {
+		t.Fatalf("Unlock failed: %v", err)
+	}
+}
+
+// TestLockSwarmMutualExclusion tests that two goroutines cannot hold the same lock simultaneously.
+func TestLockSwarmMutualExclusion(t *testing.T) {
+	tmpDir := t.TempDir()
+	r := &rig.Rig{
+		Name: "test-rig",
+		Path: tmpDir,
+	}
+	m := NewManager(r)
+
+	// This test verifies that locking serializes concurrent access.
+	// We use a shared counter protected only by the file lock.
+	var mu sync.Mutex
+	var maxConcurrent int
+	var current int
+
+	var wg sync.WaitGroup
+	for i := 0; i < 5; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+
+			fl, err := m.lockSwarm("test-swarm")
+			if err != nil {
+				t.Errorf("lockSwarm failed: %v", err)
+				return
+			}
+
+			mu.Lock()
+			current++
+			if current > maxConcurrent {
+				maxConcurrent = current
+			}
+			mu.Unlock()
+
+			// Simulate work
+			mu.Lock()
+			current--
+			mu.Unlock()
+
+			_ = fl.Unlock()
+		}()
+	}
+
+	wg.Wait()
+
+	if maxConcurrent > 1 {
+		t.Errorf("max concurrent holders = %d, want 1 (lock not providing mutual exclusion)", maxConcurrent)
+	}
+}
+
+// TestLockSwarmDifferentSwarms tests that locks for different swarms are independent.
+func TestLockSwarmDifferentSwarms(t *testing.T) {
+	tmpDir := t.TempDir()
+	r := &rig.Rig{
+		Name: "test-rig",
+		Path: tmpDir,
+	}
+	m := NewManager(r)
+
+	// Lock swarm A
+	flA, err := m.lockSwarm("swarm-a")
+	if err != nil {
+		t.Fatalf("lockSwarm(swarm-a) failed: %v", err)
+	}
+
+	// Lock swarm B should succeed (different swarm)
+	flB, err := m.lockSwarm("swarm-b")
+	if err != nil {
+		t.Fatalf("lockSwarm(swarm-b) failed: %v", err)
+	}
+
+	_ = flB.Unlock()
+	_ = flA.Unlock()
 }
 
 // TestSwarmE2ELifecycle documents the end-to-end swarm integration test protocol.
