@@ -1461,6 +1461,17 @@ func (d *Daemon) checkPolecatHealth(rigName, polecatName string) {
 		return
 	}
 
+	// Spawning guard: skip polecats being actively started by gt sling.
+	// agent_state='spawning' means the polecat bead was created (with hook_bead
+	// set atomically) but the tmux session hasn't been launched yet. Restarting
+	// here would create a second Claude process alongside the one gt sling is
+	// about to start, causing the double-spawn bug (issue #1752).
+	if info.State == "spawning" {
+		d.logger.Printf("Skipping restart for %s/%s: agent_state=spawning (gt sling in progress)",
+			rigName, polecatName)
+		return
+	}
+
 	// TOCTOU guard: re-verify session is still dead before restarting.
 	// Between the initial check and now, the session may have been restarted
 	// by another heartbeat cycle, witness, or the polecat itself.
